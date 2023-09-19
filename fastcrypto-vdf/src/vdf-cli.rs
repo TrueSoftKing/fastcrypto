@@ -4,14 +4,14 @@ use fastcrypto::error::FastCryptoError;
 use fastcrypto_vdf::class_group::{Discriminant, QuadraticForm};
 use fastcrypto_vdf::ParameterizedGroupElement;
 use fastcrypto_vdf::vdf::VDF;
-use fastcrypto_vdf::vdf::wesolowski::{StrongFiatShamir, WesolowskiVDF};
+use fastcrypto_vdf::vdf::wesolowski::{ClassGroupVDF, StrongFiatShamir, WesolowskiVDF};
 
 #[derive(Parser)]
 #[command(name = "vdf")]
 #[command(about = "Evaluate a VDF and create proof", long_about = None)]
 enum VDFCommand {
-    /// Compute a discriminant for a class group based on an arbitrary binary seed.
-    GenerateDiscriminant(GenerateDiscriminantArguments),
+    /// Generate a discriminant for a class group based on an arbitrary binary seed.
+    Generate(GenerateArguments),
 
     /// Evaluate a VDF.
     Evaluate(EvaluateArguments),
@@ -21,7 +21,7 @@ enum VDFCommand {
 }
 
 #[derive(Parser, Clone)]
-struct GenerateDiscriminantArguments {
+struct GenerateArguments {
 
     /// The binary seed as a hex string.
     #[clap(short, long)]
@@ -35,7 +35,7 @@ struct GenerateDiscriminantArguments {
 #[derive(Parser, Clone)]
 struct EvaluateArguments {
 
-    /// The discriminant of the imaginary class group.
+    /// The absolute value of the discriminant of the imaginary class group as a big-endian hex string.
     #[clap(short, long)]
     discriminant: String,
 
@@ -43,9 +43,12 @@ struct EvaluateArguments {
     #[clap(long)]
     iterations: u64,
 
-    /// (Optional) The input to the VDF. If not specified the quadratic form (2, 1, _) is used.
-    #[clap(long)]
-    input: Option<String>,
+    /// The input to the VDF in compressed form as a hex string. If not specified the quadratic form (2, 1, _) is used.
+    #[clap(long, default_value = "") ]
+    input: String,
+
+    #[clap(long, default_value = "s")]
+    fiat_shamir: String
 }
 
 #[derive(Parser, Clone)]
@@ -82,25 +85,28 @@ fn execute(command: VDFCommand) -> Result<(), FastCryptoError> {
             let discriminant_bytes = hex::decode(&arguments.discriminant).map_err(|_| FastCryptoError::InvalidInput)?;
             let discriminant_big_int = BigInt::from_bytes_be(Sign::Minus, &discriminant_bytes);
             let discriminant = Discriminant::try_from(discriminant_big_int)?;
-            let vdf = WesolowskiVDF::<QuadraticForm, StrongFiatShamir<264>>::new(discriminant.clone(), arguments.iterations);
-            let input = match arguments.input {
-                Some(input) => QuadraticForm::from_bytes(&hex::decode(input).map_err(|_| FastCryptoError::InvalidInput)?, &discriminant)?,
-                None => QuadraticForm::generator(&discriminant),
+            let vdf = ClassGroupVDF::new(discriminant.clone(), arguments.iterations);
+
+            let input_point = if arguments.input.is_empty() {
+                QuadraticForm::generator(&discriminant)
+            } else {
+                QuadraticForm::from_bytes(&hex::decode(arguments.input).map_err(|_| FastCryptoError::InvalidInput)?, &discriminant)?
             };
-            let (output, proof) = vdf.evaluate(&input)?;
+
+            let (output, proof) = vdf.evaluate(&input_point)?;
 
             println!("Output : {}", hex::encode(output.as_bytes()));
-            println!("Proof  : {}", hex::encode(output.as_bytes()));
+            println!("Proof  : {}", hex::encode(proof.as_bytes()));
+            Ok({})
         },
 
-        VDFCommand::GenerateDiscriminant(arguments) => {
+        VDFCommand::Generate(arguments) => {
             let seed = hex::decode(arguments.seed).map_err(|_| FastCryptoError::InvalidInput)?;
             let discriminant = Discriminant::from_seed(&seed, arguments.bits as usize)?;
             println!("Discriminant: {}", hex::encode(discriminant.to_bytes()));
+            Ok({})
         },
 
-        VDFCommand::Verify(_) => {}
-    };
-
-    todo!()
+        VDFCommand::Verify(_) => Ok({})
+    }
 }
