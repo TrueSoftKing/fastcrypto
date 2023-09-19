@@ -1719,7 +1719,9 @@ dependencies = [
 name = "fastcrypto-vdf"
 version = "0.1.0"
 dependencies = [
+ "clap 4.1.8",
  "criterion 0.5.1",
+ "exitcode",
  "fastcrypto",
  "hex",
  "num-bigint",
